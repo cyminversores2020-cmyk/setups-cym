@@ -449,8 +449,9 @@ document.addEventListener('click', async (e) => {
   if (d.act === 'logout') { try { await api('POST', '/auth/logout'); } catch { /* se sale igualmente */ } location.href = '/'; return; }
   if (d.act === 'hardreload') { location.reload(); return; }
   if (d.act === 'reload') { await loadData(true); return; }
-  if (!D || S.page === 'admin') return;
+  if (!D) return;
   if (d.page) { S.page = d.page; try { history.replaceState(null, '', '#' + d.page); } catch { /* ok */ } render(); return; }
+  if (S.page === 'admin') return;
   if (d.uni) { S.uni = d.uni; render(true); return; }
   if (d.rsv) { S.rsv = d.rsv; render(true); return; }
   if (d.chip) {
