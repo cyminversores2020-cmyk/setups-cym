@@ -23,7 +23,7 @@ let ME = null;        // { name, level, levelName, isAdmin }
 let D = null;         // lo que devuelve /api/bootstrap
 let ENV = { patreonUrl: '', devLogin: false };
 let loadedAt = 0;
-const S = { lf: { acc: { q: '', g: '', i: '', sg: false }, etf: { q: '', g: '', i: '', sg: false } }, page: 'guia', uni: 'acc', rsv: 'top', f: {}, sort: {} };
+const S = { lf: { acc: { q: '', g: '', i: '', sg: false }, etf: { q: '', g: '', i: '', sg: false } }, page: 'guia', uni: 'acc', rsv: 'top', corta: 'base', f: {}, sort: {} };
 const PAGE_IDS = PAGES.map((p) => p[0]);
 try { const h = location.hash.slice(1); if (PAGE_IDS.includes(h)) S.page = h; } catch { /* sin hash */ }
 
@@ -209,13 +209,30 @@ function card(page, r) {
   <div class="st"><small>RSI</small><div class="rsiv"><b>${nf(r.rsi, 0)}</b></div>${rsiBar(r.rsi)}</div></div>${rsRow(r)}</button>`;
 }
 const COLS = [['s', 'Símbolo', 'l'], ['n', 'Nombre', 'l'], ['p', 'Precio'], ['c', 'Día'], ['d21', '21d'], ['d63', '63d'], ['rs10', 'RS 10d'], ['rs21', 'RS 21d'], ['rs42', 'RS 42d'], ['rs63', 'RS 63d'], ['ytd', 'YTD'], ['rsi', 'RSI'], ['hist', 'MACD hist.'], ['pch', 'Canal 20d'], ['dist', 'vs SMA50'], ['vr', 'Vol/prom.']];
+/* Barra de desplazamiento superior sincronizada con la de la tabla */
+function syncTopScroll() {
+  document.querySelectorAll('.tws').forEach((bar) => {
+    const tw = bar.nextElementSibling;
+    if (!tw || !tw.classList.contains('tw')) return;
+    bar.firstElementChild.style.width = tw.scrollWidth + 'px';
+    bar.classList.toggle('on', tw.scrollWidth > tw.clientWidth + 1);
+  });
+}
+document.addEventListener('scroll', (e) => {
+  const el = e.target;
+  if (!(el instanceof Element)) return;
+  if (el.classList.contains('tws')) { const tw = el.nextElementSibling; if (tw && tw.scrollLeft !== el.scrollLeft) tw.scrollLeft = el.scrollLeft; }
+  else if (el.classList.contains('tw') && el.previousElementSibling?.classList.contains('tws')) { const b = el.previousElementSibling; if (b.scrollLeft !== el.scrollLeft) b.scrollLeft = el.scrollLeft; }
+}, true);
+window.addEventListener('resize', syncTopScroll);
+document.fonts?.ready?.then(syncTopScroll);
 function tableHTML(page, rows, u) {
   const so = getSort(page, u);
   const th = COLS.map(([k, l, a]) => `<th class="${a || ''}" data-sort="${k === 'n' ? 's' : k}" ${so.k === k ? `aria-sort="${so.d < 0 ? 'descending' : 'ascending'}"` : ''}>${l}${so.k === k ? (so.d < 0 ? ' ↓' : ' ↑') : ''}</th>`).join('');
   const body = rows.map((r) => `<tr data-sym="${esc(r.s)}"><td><span class="sym">${esc(r.s)} ${tags(page, r)}</span></td><td class="l nmc" title="${esc(r.n)}">${esc(r.n)}</td>
    <td class="mono">${nf(r.p)}</td><td class="mono ${cls(r.c)}">${pct(r.c)}</td><td class="mono ${cls(r.d21)}">${pct(r.d21, 1)}</td><td class="mono ${cls(r.d63)}">${pct(r.d63, 1)}</td>${[0, 1, 2, 3].map((i) => `<td class="mono ${cls((r.rs || [])[i])}">${pp((r.rs || [])[i])}</td>`).join('')}<td class="mono ${cls(r.ytd)}">${pct(r.ytd, 1)}</td>
    <td class="mono">${nf(r.rsi, 0)}</td><td class="mono ${cls(r.hist)}">${nf(r.hist)}</td><td class="mono">${r.pch == null ? '–' : nf(r.pch, 0) + ' %'}</td><td class="mono ${cls(dist(r))}">${pct(dist(r), 1)}</td><td class="mono">${vr(r) == null ? '–' : nf(vr(r), 1) + '×'}</td></tr>`).join('');
-  return `<div class="tw"><table><thead><tr>${th}</tr></thead><tbody>${body}</tbody></table></div>`;
+  return `<div class="tws" aria-hidden="true"><div></div></div><div class="tw dense"><table><thead><tr>${th}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 const DESC = { ind: 'Valores con MACD, RSI y SMA 50 alineados. Setups más antiguos que los de la lista corta.', brk: 'Valores que han superado el máximo de 20 días o están entre el 90 % y el 100 % del canal.',
   reb: 'Valores con vela de fuerza sobre la SMA 50. Incluye casos con la SMA 50 por debajo de la 200.', per: 'Ordenado por rentabilidad a 63 días y luego a 21 días. Busca tendencia positiva con corrección reciente.',
@@ -239,12 +256,21 @@ function resultsHTML(page, rows, u) {
   return `<div class="list">${rows.map((r) => card(page, r)).join('')}</div>` + tableHTML(page, rows, u);
 }
 
+/* Lista corta: tres orígenes. «acc» = base de acciones de seguimiento, «rs» = acciones con RS superior a SPY, «etf» = ETFs. */
+const cortaSrc = () => S.corta === 'rs' ? 'rs' : S.uni;
+function cortaSeg(src) {
+  const b = (k, l) => `<button data-corta="${k}" aria-pressed="${src === k}">${l}</button>`;
+  const info = src === 'rs' ? 'Acciones con RS superior a SPY · lista corta del Excel de RS' : src === 'acc' ? `Base de ${D.list?.acc?.length ?? 342} acciones de seguimiento · 2 actualizaciones por semana` : `Lista de ${D.list?.etf?.length ?? 69} ETFs · actualización semanal`;
+  return `<div class="uni"><div class="seg" role="group" aria-label="Origen de la lista corta">${b('acc', 'Acciones · base de seguimiento')}${b('rs', 'Acciones · RS &gt; SPY')}${b('etf', 'ETFs')}</div><span class="meta">${info}</span></div>`;
+}
 function vCorta() {
-  const u = S.uni;
-  let h = head('Lista corta', 'Los valores con un setup activo ahora mismo, separados por tipo de setup. Toca un símbolo para ver el detalle.', D.dates?.[u] ? `Datos del ${dsDate(u)}` : '') + uniSeg();
-  if (!allowedKind(u)) return h + lockCard(u);
-  if (isEmpty(u)) return h + emptyCard();
-  const sh = U(u).short;
+  const src = cortaSrc(), u = src === 'rs' ? 'acc' : src, kind = src === 'rs' ? 'rs' : u;
+  const desc = src === 'rs' ? 'Valores de la lista de acciones con RS superior a SPY que tienen un setup activo ahora mismo, separados por tipo de setup. Toca un símbolo para ver el detalle.' : 'Los valores con un setup activo ahora mismo, separados por tipo de setup. Toca un símbolo para ver el detalle.';
+  let h = head(src === 'rs' ? 'Lista corta · RS &gt; SPY' : 'Lista corta', desc, D.dates?.[kind] ? `Datos del ${dsDate(kind)}` : '') + cortaSeg(src);
+  if (!allowedKind(kind)) return h + lockCard(kind);
+  if (isEmpty(kind)) return h + emptyCard();
+  const sh = src === 'rs' ? (D.rs.short || { ind: [], brk: [], reb: [] }) : U(u).short;
+  if (src === 'rs' && !['ind', 'brk', 'reb'].some((k) => sh[k]?.length)) return h + '<div class="empty">El Excel de RS publicado no incluye lista corta. Vuelve a subirlo con su pestaña «Lista corta».</div>';
   const all = {};
   ['ind', 'brk', 'reb'].forEach((k) => sh[k].forEach((x) => { all[x.s] = (all[x.s] || 0) + 1; }));
   const tri = Object.keys(all).filter((s) => all[s] === 3);
@@ -419,11 +445,12 @@ function render(keepScroll) {
   if (S.page === 'admin' && !ME.isAdmin) S.page = 'guia';
   renderUserBar(); renderNav(); renderStamp();
   const y = window.scrollY;
-  if (S.page === 'admin') { renderAdmin(); window.scrollTo(0, 0); return; }
+  if (S.page === 'admin') { document.body.classList.remove('wide-page'); renderAdmin(); window.scrollTo(0, 0); return; }
   const v = { guia: vGuia, corta: vCorta, ind: () => vData('ind'), brk: () => vData('brk'), reb: () => vData('reb'), per: () => vData('per'), rs: () => vData('rs'), listas: vListas, recursos: vRecursos }[S.page];
+  document.body.classList.toggle('wide-page', ['ind', 'brk', 'reb', 'per', 'rs'].includes(S.page));
   $('#main').innerHTML = v();
   window.scrollTo(0, keepScroll ? y : 0);
-  updCount();
+  updCount(); syncTopScroll();
 }
 function updCount() {
   const page = S.page; if (!CHIPS[page]) return;
@@ -436,13 +463,14 @@ function refresh() {
   const page = S.page, u = page === 'rs' ? 'acc' : S.uni;
   const rows = apply(page, u);
   $('#results').innerHTML = resultsHTML(page, rows, u);
+  syncTopScroll();
   $('#rcount').textContent = `${rows.length} de ${rowsOf(page, u).length} valores`;
   updCount();
 }
 
 /* ---------- eventos ---------- */
 document.addEventListener('click', async (e) => {
-  const t = e.target.closest('[data-page],[data-uni],[data-rsv],[data-chip],[data-sym],[data-sort],[data-close],[data-lchip],[data-del],[data-act],#freset');
+  const t = e.target.closest('[data-page],[data-uni],[data-rsv],[data-corta],[data-chip],[data-sym],[data-sort],[data-close],[data-lchip],[data-del],[data-act],#freset');
   if (!t) return;
   const d = t.dataset;
   if (d.close !== undefined) { if (t.classList.contains('ov') && e.target !== t) return; closeDrawer(); return; }
@@ -454,6 +482,7 @@ document.addEventListener('click', async (e) => {
   if (S.page === 'admin') return;
   if (d.uni) { S.uni = d.uni; render(true); return; }
   if (d.rsv) { S.rsv = d.rsv; render(true); return; }
+  if (d.corta) { if (d.corta === 'rs') S.corta = 'rs'; else { S.corta = 'base'; S.uni = d.corta; } render(true); return; }
   if (d.chip) {
     const f = getF(S.page, S.page === 'rs' ? 'acc' : S.uni);
     const i = f.chips.indexOf(d.chip); if (i >= 0) f.chips.splice(i, 1); else f.chips.push(d.chip);
